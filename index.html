@@ -1,20 +1,350 @@
 <!DOCTYPE html>
 <html lang="en">
+  <head>
+    <title>three.js ar - lighting estimation</title>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, user-scalable=no"
+    />
+    <link rel="stylesheet" href="./main.css" />
+  </head>
+  <body>
+    <div id="info">
+      <a href="https://threejs.org" target="_blank" rel="noopener">three.js</a>
+      ar - Lighting Estimation<br />
+      (Chrome Android 90+)
+    </div>
 
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
-  <title>three_vite</title>
-  <link rel="icon" href="favicon.png">
-  <link rel="stylesheet" href="./main.css">
-</head>
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "../build/three.module.js",
+          "three/addons/": "./jsm/"
+        }
+      }
+    </script>
 
-<body>
-  <div id="container"></div>
-  <!--
-  <script src="./jsm/libs/ammo.wasm.js"></script>
-  -->
- <script type="module" src="./main.js"></script>
-</body>
+    <script type="module">
+      import * as THREE from "three";
+      import TWEEN from "@tweenjs/tween.js";
+      import { RGBELoader } from "three/addons/loaders/RGBELoader.js";
+      import { ARButton } from "three/addons/webxr/ARButton.js";
+      import { XREstimatedLight } from "three/addons/webxr/XREstimatedLight.js";
+      import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
+      let camera, scene, renderer;
+      let controller;
+      let reticle;
+
+      let hitTestSource = null;
+      let hitTestSourceRequested = false;
+
+      let defaultEnvironment;
+
+      let animal;
+      let meshFloor;
+      let gltfModel;
+
+      let currentTween;
+      let mixers = [];
+
+      init();
+      animate();
+
+      const loader = new GLTFLoader();
+      let model = "wolf.glb";
+      loader.setPath("assets/models/").load(
+        model,
+        function (gltf) {
+          gltfModel = gltf;
+          animal = gltf.scene;
+          animal.scale.set(0.01, 0.01, 0.01);
+          scene.add(animal);
+
+          animal.traverse(function (node) {
+            if (node.isMesh) {
+              node.castShadow = true;
+              node.receiveShadow = true;
+              console.log("oui");
+              console.log(node);
+            }
+          });
+
+          const mixer = new THREE.AnimationMixer(animal);
+          mixer.clipAction(gltfModel.animations[3]).play();
+          mixers.push(mixer);
+        },
+        undefined,
+        function (error) {
+          console.error(error);
+        }
+      );
+
+      function init() {
+        const container = document.createElement("div");
+        document.body.appendChild(container);
+
+        scene = new THREE.Scene();
+
+        camera = new THREE.PerspectiveCamera(
+          70,
+          window.innerWidth / window.innerHeight,
+          0.01,
+          20
+        );
+
+        const defaultLight = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1);
+        defaultLight.position.set(0.5, 1, 0.25);
+        scene.add(defaultLight);
+
+        var light = new THREE.DirectionalLight(0xffffff, 1);
+        light.position.set(0, 10, 10); // Adjust the position as needed
+        light.castShadow = true; // Enable shadow casting
+        const d = 5;
+        // Configure the shadow
+        light.shadow.mapSize.width = 2048; // Default is 512
+        light.shadow.mapSize.height = 2048; // Default is 512
+        light.shadow.camera.near = 0.5; // Default is 0.5
+        light.shadow.camera.far = 25; // Default is 500
+        light.shadow.camera.left = -d;
+        light.shadow.camera.right = d;
+        light.shadow.camera.top = d;
+        light.shadow.camera.bottom = -d;
+        // light.shadow.bias = -0.0001;
+
+        // Add the light to the scene
+        scene.add(light);
+
+        // Create a shadow catcher floor
+        meshFloor = new THREE.Mesh(
+          new THREE.PlaneBufferGeometry(100, 100),
+          new THREE.ShadowMaterial() // Completely transparent
+        );
+        meshFloor.rotation.x = -Math.PI / 2; // Rotate it to lie flat
+        meshFloor.receiveShadow = true; // Enable receiving shadow
+        scene.add(meshFloor);
+
+        renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.xr.enabled = true;
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.BasicShadowMap;
+        container.appendChild(renderer.domElement);
+
+        // Don't add the XREstimatedLight to the scene initially.
+        // It doesn't have any estimated lighting values until an AR session starts.
+
+        // const xrLight = new XREstimatedLight(renderer);
+
+        // xrLight.addEventListener("estimationstart", () => {
+        //   // Swap the default light out for the estimated one one we start getting some estimated values.
+        //   scene.add(xrLight);
+        //   scene.remove(defaultLight);
+
+        //   // The estimated lighting also provides an environment cubemap, which we can apply here.
+        //   if (xrLight.environment) {
+        //     scene.environment = xrLight.environment;
+        //   }
+        // });
+
+        // xrLight.addEventListener("estimationend", () => {
+        //   // Swap the lights back when we stop receiving estimated values.
+        //   scene.add(defaultLight);
+        //   scene.remove(xrLight);
+
+        //   // Revert back to the default environment.
+        //   scene.environment = defaultEnvironment;
+        // });
+
+        //
+
+        // new RGBELoader()
+        //   .setPath("textures/equirectangular/")
+        //   .load("royal_esplanade_1k.hdr", function (texture) {
+        //     texture.mapping = THREE.EquirectangularReflectionMapping;
+
+        //     defaultEnvironment = texture;
+
+        //     scene.environment = defaultEnvironment;
+        //   });
+
+        //
+
+        // In order for lighting estimation to work, 'light-estimation' must be included as either an optional or required feature.
+        document.body.appendChild(
+          ARButton.createButton(renderer, {
+            optionalFeatures: ["light-estimation"],
+          })
+        );
+
+        //
+
+        const ballGeometry = new THREE.SphereGeometry(0.175, 32, 32);
+        const ballGroup = new THREE.Group();
+        ballGroup.position.z = -2;
+
+        const rows = 3;
+        const cols = 3;
+
+        for (let i = 0; i < rows; i++) {
+          for (let j = 0; j < cols; j++) {
+            const ballMaterial = new THREE.MeshStandardMaterial({
+              color: 0xdddddd,
+              roughness: i / rows,
+              metalness: j / cols,
+            });
+            const ballMesh = new THREE.Mesh(ballGeometry, ballMaterial);
+            ballMesh.position.set(
+              (i + 0.5 - rows * 0.5) * 0.4,
+              (j + 0.5 - cols * 0.5) * 0.4,
+              0
+            );
+            ballGroup.add(ballMesh);
+          }
+        }
+
+        // scene.add(ballGroup);
+
+        //
+
+        function onSelect() {
+          // ballGroup.position.set(0, 0, -2).applyMatrix4(controller.matrixWorld);
+          // ballGroup.quaternion.setFromRotationMatrix(controller.matrixWorld);
+
+          if (reticle.visible && animal) {
+            // Stop the current tween if it exists
+            if (currentTween) {
+              currentTween.stop();
+            }
+            let targetPosition = new THREE.Vector3();
+            reticle.matrix.decompose(
+              targetPosition,
+              animal.quaternion,
+              animal.scale
+            );
+            animal.scale.set(0.1, 0.1, 0.1);
+            animal.lookAt(targetPosition);
+            let distance = animal.position.distanceTo(targetPosition);
+            if (distance > 1) {
+              mixers[0].clipAction(gltfModel.animations[6]).play();
+            } else {
+              mixers[0].clipAction(gltfModel.animations[7]).play();
+            }
+            mixers[0].clipAction(gltfModel.animations[3]).stop();
+
+            // Create a new tween for the animal's position
+            currentTween = new TWEEN.Tween(animal.position)
+              .to(
+                {
+                  x: targetPosition.x,
+                  y: targetPosition.y,
+                  z: targetPosition.z,
+                },
+                2000
+              ) // Duration of the animation in milliseconds
+              .easing(TWEEN.Easing.Quadratic.Out) // Use an easing function
+              .onComplete(() => {
+                if (mixers[0].clipAction(gltfModel.animations[6]).isRunning())
+                  mixers[0].clipAction(gltfModel.animations[6]).stop();
+
+                if (mixers[0].clipAction(gltfModel.animations[7]).isRunning())
+                  mixers[0].clipAction(gltfModel.animations[7]).stop();
+
+                mixers[0].clipAction(gltfModel.animations[3]).play();
+              })
+              .start(); // Start the animation
+          }
+        }
+
+        controller = renderer.xr.getController(0);
+        controller.addEventListener("select", onSelect);
+        scene.add(controller);
+
+        reticle = new THREE.Mesh(
+          new THREE.RingGeometry(0.15, 0.2, 32).rotateX(-Math.PI / 2),
+          new THREE.MeshBasicMaterial()
+        );
+        reticle.matrixAutoUpdate = false;
+        reticle.visible = false;
+        scene.add(reticle);
+
+        //
+
+        window.addEventListener("resize", onWindowResize);
+      }
+
+      function onWindowResize() {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      }
+
+      //
+
+      function animate() {
+        renderer.setAnimationLoop(render);
+
+        // Nécessaire pour les animations
+      }
+
+      function render(timestamp, frame) {
+        for (let i = 0; i < mixers.length; i++) {
+          if (mixers[i].clipAction(gltfModel.animations[6]).isRunning()) {
+            mixers[i].update(0.02);
+          } else {
+            mixers[i].update(0.007);
+          }
+        }
+        meshFloor.position.set(
+          animal.position.x,
+          animal.position.y,
+          animal.position.z
+        );
+        TWEEN.update();
+
+        if (frame) {
+          const referenceSpace = renderer.xr.getReferenceSpace();
+          const session = renderer.xr.getSession();
+
+          if (hitTestSourceRequested === false) {
+            session
+              .requestReferenceSpace("viewer")
+              .then(function (referenceSpace) {
+                session
+                  .requestHitTestSource({ space: referenceSpace })
+                  .then(function (source) {
+                    hitTestSource = source;
+                  });
+              });
+
+            session.addEventListener("end", function () {
+              hitTestSourceRequested = false;
+              hitTestSource = null;
+            });
+
+            hitTestSourceRequested = true;
+          }
+
+          if (hitTestSource) {
+            const hitTestResults = frame.getHitTestResults(hitTestSource);
+
+            if (hitTestResults.length) {
+              const hit = hitTestResults[0];
+
+              reticle.visible = true;
+              reticle.matrix.fromArray(
+                hit.getPose(referenceSpace).transform.matrix
+              );
+            } else {
+              reticle.visible = false;
+            }
+          }
+        }
+        renderer.render(scene, camera);
+      }
+    </script>
+  </body>
 </html>
