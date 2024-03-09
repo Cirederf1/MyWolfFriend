@@ -33,6 +33,7 @@
       import { XREstimatedLight } from "three/addons/webxr/XREstimatedLight.js";
       import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
+      // VARIABLES //
       let camera, scene, renderer;
       let controller;
       let reticle;
@@ -49,9 +50,11 @@
       let currentTween;
       let mixers = [];
 
+      // Initialisation //
       init();
       animate();
 
+      // MODEL //
       const loader = new GLTFLoader();
       let model = "wolf.glb";
       loader.setPath("assets/models/").load(
@@ -64,6 +67,7 @@
 
           animal.traverse(function (node) {
             if (node.isMesh) {
+              // Ombre
               node.castShadow = true;
               node.receiveShadow = true;
               console.log("oui");
@@ -71,6 +75,7 @@
             }
           });
 
+          // Animation
           const mixer = new THREE.AnimationMixer(animal);
           mixer.clipAction(gltfModel.animations[3]).play();
           mixers.push(mixer);
@@ -179,40 +184,8 @@
           })
         );
 
-        //
-
-        const ballGeometry = new THREE.SphereGeometry(0.175, 32, 32);
-        const ballGroup = new THREE.Group();
-        ballGroup.position.z = -2;
-
-        const rows = 3;
-        const cols = 3;
-
-        for (let i = 0; i < rows; i++) {
-          for (let j = 0; j < cols; j++) {
-            const ballMaterial = new THREE.MeshStandardMaterial({
-              color: 0xdddddd,
-              roughness: i / rows,
-              metalness: j / cols,
-            });
-            const ballMesh = new THREE.Mesh(ballGeometry, ballMaterial);
-            ballMesh.position.set(
-              (i + 0.5 - rows * 0.5) * 0.4,
-              (j + 0.5 - cols * 0.5) * 0.4,
-              0
-            );
-            ballGroup.add(ballMesh);
-          }
-        }
-
-        // scene.add(ballGroup);
-
-        //
-
+        // When reticle is visible, click to move the animal
         function onSelect() {
-          // ballGroup.position.set(0, 0, -2).applyMatrix4(controller.matrixWorld);
-          // ballGroup.quaternion.setFromRotationMatrix(controller.matrixWorld);
-
           if (reticle.visible && animal) {
             // Stop the current tween if it exists
             if (currentTween) {
@@ -258,10 +231,12 @@
           }
         }
 
+        // Add a controller to the scene
         controller = renderer.xr.getController(0);
         controller.addEventListener("select", onSelect);
         scene.add(controller);
 
+        // Add a reticle to the scene
         reticle = new THREE.Mesh(
           new THREE.RingGeometry(0.15, 0.2, 32).rotateX(-Math.PI / 2),
           new THREE.MeshBasicMaterial()
@@ -286,11 +261,10 @@
 
       function animate() {
         renderer.setAnimationLoop(render);
-
-        // Nécessaire pour les animations
       }
 
       function render(timestamp, frame) {
+        // Update the mixer animations
         for (let i = 0; i < mixers.length; i++) {
           if (mixers[i].clipAction(gltfModel.animations[6]).isRunning()) {
             mixers[i].update(0.02);
@@ -298,6 +272,8 @@
             mixers[i].update(0.007);
           }
         }
+
+        // Update the Shadow receiver floor position
         meshFloor.position.set(
           animal.position.x,
           animal.position.y,
